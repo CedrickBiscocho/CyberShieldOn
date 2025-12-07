@@ -111,39 +111,57 @@ export type Database = {
           created_at: string
           description: string
           how_it_works: Json
+          how_it_works_intro: string | null
           icon: string
           id: string
           name: string
           prevention: Json
+          prevention_intro: string | null
+          real_world_example: string | null
+          source_references: Json
           summary: string
           updated_at: string
           warning_signs: Json
+          warning_signs_intro: string | null
+          why_it_matters: string | null
         }
         Insert: {
           category: string
           created_at?: string
           description: string
           how_it_works?: Json
+          how_it_works_intro?: string | null
           icon: string
           id: string
           name: string
           prevention?: Json
+          prevention_intro?: string | null
+          real_world_example?: string | null
+          source_references?: Json
           summary: string
           updated_at?: string
           warning_signs?: Json
+          warning_signs_intro?: string | null
+          why_it_matters?: string | null
         }
         Update: {
           category?: string
           created_at?: string
           description?: string
           how_it_works?: Json
+          how_it_works_intro?: string | null
           icon?: string
           id?: string
           name?: string
           prevention?: Json
+          prevention_intro?: string | null
+          real_world_example?: string | null
+          source_references?: Json
           summary?: string
           updated_at?: string
           warning_signs?: Json
+          warning_signs_intro?: string | null
+          why_it_matters?: string | null
         }
         Relationships: []
       }
