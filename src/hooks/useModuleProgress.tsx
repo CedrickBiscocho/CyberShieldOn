@@ -51,6 +51,8 @@ export function useAllModuleProgress() {
       return data as ModuleProgress[];
     },
     enabled: !!user,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
@@ -91,7 +93,44 @@ export function useSaveModuleProgress() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_, variables) => {
+    onMutate: async ({ moduleId, progressPercentage }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['all-module-progress', user?.id] });
+      
+      // Snapshot previous value
+      const previousData = queryClient.getQueryData<ModuleProgress[]>(['all-module-progress', user?.id]);
+      
+      // Optimistically update cache
+      queryClient.setQueryData<ModuleProgress[]>(['all-module-progress', user?.id], (old) => {
+        if (!old) return old;
+        const existing = old.find(p => p.module_id === moduleId);
+        if (existing) {
+          return old.map(p => 
+            p.module_id === moduleId 
+              ? { ...p, progress_percentage: Math.max(p.progress_percentage, progressPercentage) }
+              : p
+          );
+        }
+        // Add new entry if doesn't exist
+        return [...old, { 
+          id: crypto.randomUUID(),
+          module_id: moduleId, 
+          progress_percentage: progressPercentage, 
+          user_id: user!.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }];
+      });
+      
+      return { previousData };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        queryClient.setQueryData(['all-module-progress', user?.id], context.previousData);
+      }
+    },
+    onSettled: (_, __, variables) => {
       queryClient.invalidateQueries({ queryKey: ['module-progress', variables.moduleId] });
       queryClient.invalidateQueries({ queryKey: ['all-module-progress'] });
     },
