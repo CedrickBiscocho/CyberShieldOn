@@ -42,6 +42,9 @@ export function useUserProgress(threatId?: string) {
 
   return useQuery({
     queryKey: ['user-progress', user?.id, threatId],
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    staleTime: 0,
     queryFn: async () => {
       if (!user) return null;
 
@@ -115,6 +118,7 @@ export function useSaveProgress() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-progress'] });
+      queryClient.refetchQueries({ queryKey: ['user-progress'] });
     },
   });
 }
