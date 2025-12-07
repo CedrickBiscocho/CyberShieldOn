@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft, ArrowRight, Brain } from "lucide-react";
+import { saveSessionModuleProgress, getSessionModuleProgress } from "@/utils/sessionProgress";
+import { saveLocalModuleProgress, getLocalModuleProgress } from "@/utils/localProgress";
 
 const ModuleDetail = () => {
   const { id } = useParams();
@@ -53,10 +55,21 @@ const ModuleDetail = () => {
 
   // Load saved progress after ready - only increase, never decrease
   useEffect(() => {
-    if (isReady && savedProgress?.progress_percentage !== undefined) {
+    if (!isReady || !id) return;
+    
+    // For logged-in users, use database progress
+    if (savedProgress?.progress_percentage !== undefined) {
       setMaxProgress(prev => Math.max(prev, savedProgress.progress_percentage));
+    } else if (!user) {
+      // For guests, load from both session memory and localStorage
+      const sessionProgress = getSessionModuleProgress(id);
+      const localProgress = getLocalModuleProgress(id);
+      const bestProgress = Math.max(sessionProgress, localProgress);
+      if (bestProgress > 0) {
+        setMaxProgress(prev => Math.max(prev, bestProgress));
+      }
     }
-  }, [savedProgress, isReady]);
+  }, [savedProgress, isReady, id, user]);
 
   // Window scroll tracking
   useEffect(() => {
@@ -86,19 +99,26 @@ const ModuleDetail = () => {
       setMaxProgress(prev => {
         const newMax = Math.max(prev, clampedProgress);
         
-        // Only save if user is logged in and progress increased
-        // Use ref to ensure we save to the correct module
-        if (user && newMax > prev && currentModuleIdRef.current === id) {
-          if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
+        if (newMax > prev && currentModuleIdRef.current === id) {
+          // For guests, save to both session memory and localStorage
+          if (!user) {
+            saveSessionModuleProgress(id, newMax);
+            saveLocalModuleProgress(id, newMax);
           }
-          const moduleToSave = id; // Capture current id
-          saveTimeoutRef.current = setTimeout(() => {
-            // Double-check we're still on the same module
-            if (currentModuleIdRef.current === moduleToSave) {
-              saveProgress(moduleToSave, newMax);
+          
+          // Save to database if user is logged in
+          if (user) {
+            if (saveTimeoutRef.current) {
+              clearTimeout(saveTimeoutRef.current);
             }
-          }, 1000);
+            const moduleToSave = id; // Capture current id
+            saveTimeoutRef.current = setTimeout(() => {
+              // Double-check we're still on the same module
+              if (currentModuleIdRef.current === moduleToSave) {
+                saveProgress(moduleToSave, newMax);
+              }
+            }, 1000);
+          }
         }
         
         return newMax;
@@ -130,8 +150,16 @@ const ModuleDetail = () => {
         clearTimeout(saveTimeoutRef.current);
       }
       // Save final progress for this specific module
-      if (user && moduleId && maxProgressRef.current > 0) {
-        saveProgress(moduleId, maxProgressRef.current);
+      if (moduleId && maxProgressRef.current > 0) {
+        // For guests, save to both session memory and localStorage
+        if (!user) {
+          saveSessionModuleProgress(moduleId, maxProgressRef.current);
+          saveLocalModuleProgress(moduleId, maxProgressRef.current);
+        }
+        // Save to database if logged in
+        if (user) {
+          saveProgress(moduleId, maxProgressRef.current);
+        }
       }
     };
   }, [user, id, saveProgress]);
@@ -211,11 +239,37 @@ const ModuleDetail = () => {
 
       <section ref={contentRef} className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto space-y-8">
+          {/* Why It Matters */}
+          {threat.whyItMatters && (
+            <Card className="p-6 bg-gradient-to-r from-primary/5 to-accent/5 border-primary/20" data-section="why-it-matters">
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span className="text-3xl">💡</span>
+                Why It Matters
+              </h2>
+              <p className="text-foreground/90 leading-relaxed text-lg">{threat.whyItMatters}</p>
+            </Card>
+          )}
+
+          {/* Real-World Example */}
+          {threat.realWorldExample && (
+            <Card className="p-6 bg-gradient-to-r from-muted/50 to-muted/30 border-border/50" data-section="real-world-example">
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span className="text-3xl">📖</span>
+                Real-World Example
+              </h2>
+              <p className="text-foreground/80 leading-relaxed italic">{threat.realWorldExample}</p>
+            </Card>
+          )}
+
           {/* How It Works */}
           <Card className="p-6 bg-card border-border/50" data-section="0">
             <h2 className="text-2xl font-bold mb-4 text-primary">How the Attack Works</h2>
+            {threat.howItWorksIntro && (
+              <p className="text-foreground/80 mb-6 leading-relaxed">{threat.howItWorksIntro}</p>
+            )}
+            <h3 className="text-lg font-semibold mb-3 text-foreground/90">Key Steps:</h3>
             <ol className="space-y-3">
-              {threat.howItWorks.map((step, index) => (
+              {threat.howItWorks.slice(0, 5).map((step, index) => (
                 <li key={index} className="flex gap-4">
                   <span className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold">
                     {index + 1}
@@ -232,8 +286,12 @@ const ModuleDetail = () => {
               <span className="text-3xl">⚠️</span>
               Warning Signs to Watch For
             </h2>
+            {threat.warningSignsIntro && (
+              <p className="text-foreground/80 mb-6 leading-relaxed">{threat.warningSignsIntro}</p>
+            )}
+            <h3 className="text-lg font-semibold mb-3 text-foreground/90">Key Indicators:</h3>
             <ul className="space-y-3">
-              {threat.warningSigns.map((sign, index) => (
+              {threat.warningSigns.slice(0, 5).map((sign, index) => (
                 <li key={index} className="flex items-start gap-3">
                   <span className="text-warning text-xl flex-shrink-0">•</span>
                   <p className="text-foreground/90">{sign}</p>
@@ -248,8 +306,12 @@ const ModuleDetail = () => {
               <span className="text-3xl">🛡️</span>
               Prevention & Protection
             </h2>
+            {threat.preventionIntro && (
+              <p className="text-foreground/80 mb-6 leading-relaxed">{threat.preventionIntro}</p>
+            )}
+            <h3 className="text-lg font-semibold mb-3 text-foreground/90">Key Prevention Tips:</h3>
             <ul className="space-y-3">
-              {threat.prevention.map((method, index) => (
+              {threat.prevention.slice(0, 5).map((method, index) => (
                 <li key={index} className="flex items-start gap-3">
                   <span className="text-accent text-xl flex-shrink-0">✓</span>
                   <p className="text-foreground/90">{method}</p>
@@ -257,6 +319,31 @@ const ModuleDetail = () => {
               ))}
             </ul>
           </Card>
+
+          {/* References & Sources */}
+          {threat.source_references && threat.source_references.length > 0 && (
+            <Card className="p-6 bg-card border-border/50" data-section="references">
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span className="text-3xl">📚</span>
+                References & Sources
+              </h2>
+              <ul className="space-y-2">
+                {threat.source_references.map((ref, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <span className="text-muted-foreground">•</span>
+                    <a 
+                      href={ref.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline break-all"
+                    >
+                      {ref.title || ref.url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {/* Quiz Button */}
           <Card className="p-6 bg-gradient-to-r from-primary/10 to-accent/10 border-primary/30" data-section="3">
