@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useNavigate } from "react-router-dom";
 import { BookOpen, Filter } from "lucide-react";
+import { getSessionModuleProgress } from "@/utils/sessionProgress";
 
 const Modules = () => {
   const navigate = useNavigate();
@@ -22,9 +23,13 @@ const Modules = () => {
     : threats?.filter(t => t.category === filter) || [];
 
   const getModuleProgress = (moduleId: string) => {
-    if (!allProgress) return 0;
-    const progress = allProgress.find(p => p.module_id === moduleId);
-    return progress?.progress_percentage || 0;
+    // For logged-in users, use database progress
+    if (user && allProgress) {
+      const progress = allProgress.find(p => p.module_id === moduleId);
+      return progress?.progress_percentage || 0;
+    }
+    // For guests, use session memory (resets on reload)
+    return getSessionModuleProgress(moduleId);
   };
 
   const getCategoryBadge = (category: string) => {
@@ -107,17 +112,15 @@ const Modules = () => {
                     </div>
                   </div>
                   
-                  <p className="text-foreground/80">{threat.description}</p>
+                  <p className="text-foreground/80 line-clamp-2">{threat.summary || threat.description}</p>
                   
-                  {user && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Progress</span>
-                        <span className="text-primary font-medium">{progress}%</span>
-                      </div>
-                      <Progress value={progress} className="h-1.5" />
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Progress</span>
+                      <span className="text-primary font-medium">{progress}%</span>
                     </div>
-                  )}
+                    <Progress value={progress} className="h-1.5" />
+                  </div>
                   
                   <div className="space-y-2">
                     <h4 className="font-semibold text-sm text-primary">What you'll learn:</h4>
