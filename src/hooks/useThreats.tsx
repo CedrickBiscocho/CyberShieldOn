@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+export interface ThreatReference {
+  title?: string;
+  url: string;
+}
+
 export interface Threat {
   id: string;
   name: string;
@@ -8,9 +13,15 @@ export interface Threat {
   summary: string;
   description: string;
   howItWorks: string[];
+  howItWorksIntro: string | null;
   warningSigns: string[];
+  warningSignsIntro: string | null;
   prevention: string[];
+  preventionIntro: string | null;
   category: 'social' | 'technical' | 'network';
+  source_references: ThreatReference[];
+  whyItMatters: string | null;
+  realWorldExample: string | null;
 }
 
 export function useThreats() {
@@ -31,9 +42,15 @@ export function useThreats() {
         summary: threat.summary,
         description: threat.description,
         howItWorks: threat.how_it_works as string[],
+        howItWorksIntro: threat.how_it_works_intro,
         warningSigns: threat.warning_signs as string[],
+        warningSignsIntro: threat.warning_signs_intro,
         prevention: threat.prevention as string[],
+        preventionIntro: threat.prevention_intro,
         category: threat.category as 'social' | 'technical' | 'network',
+        source_references: (threat.source_references || []) as unknown as ThreatReference[],
+        whyItMatters: threat.why_it_matters,
+        realWorldExample: threat.real_world_example,
       })) as Threat[];
     },
   });
@@ -58,9 +75,15 @@ export function useThreat(id: string) {
         summary: data.summary,
         description: data.description,
         howItWorks: data.how_it_works as string[],
+        howItWorksIntro: data.how_it_works_intro,
         warningSigns: data.warning_signs as string[],
+        warningSignsIntro: data.warning_signs_intro,
         prevention: data.prevention as string[],
+        preventionIntro: data.prevention_intro,
         category: data.category as 'social' | 'technical' | 'network',
+        source_references: (data.source_references || []) as unknown as ThreatReference[],
+        whyItMatters: data.why_it_matters,
+        realWorldExample: data.real_world_example,
       } as Threat;
     },
     enabled: !!id,
