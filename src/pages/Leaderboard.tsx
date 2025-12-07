@@ -100,9 +100,9 @@ const Leaderboard = () => {
                 <div className="text-center py-8 text-destructive">
                   Failed to load leaderboard. Please try again later.
                 </div>
-              ) : leaderboard && leaderboard.length > 0 ? (
+              ) : leaderboard && leaderboard.top10.length > 0 ? (
                 <div className="space-y-3">
-                  {leaderboard.map((entry) => (
+                  {leaderboard.top10.map((entry) => (
                     <div
                       key={entry.user_id}
                       className={`flex items-center gap-4 p-4 rounded-lg border transition-colors ${
@@ -146,6 +146,45 @@ const Leaderboard = () => {
                       </Badge>
                     </div>
                   ))}
+                  
+                  {/* Show current user as 11th row if not in top 10 */}
+                  {leaderboard.currentUser && (
+                    <div
+                      className="flex items-center gap-4 p-4 rounded-lg border bg-primary/5 border-primary/20 mt-2"
+                    >
+                      <div className="flex items-center justify-center w-10">
+                        <span className="text-lg font-bold text-primary">#{leaderboard.currentUser.rank}</span>
+                      </div>
+                      
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={leaderboard.currentUser.avatar_url || undefined} />
+                        <AvatarFallback>
+                          <User className="h-5 w-5" />
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="flex-grow min-w-0">
+                        <p className="font-medium text-foreground truncate">
+                          {leaderboard.currentUser.username}
+                          <span className="ml-2 text-xs text-primary">(You)</span>
+                        </p>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <BookOpen className="h-3 w-3" />
+                            {leaderboard.currentUser.modules_completed} modules
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <HelpCircle className="h-3 w-3" />
+                            {leaderboard.currentUser.quizzes_completed} quizzes
+                          </span>
+                        </div>
+                      </div>
+
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                        {leaderboard.currentUser.total_score} pts
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
