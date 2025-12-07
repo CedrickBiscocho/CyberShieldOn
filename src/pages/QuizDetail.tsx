@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { useThreat } from "@/hooks/useThreats";
@@ -10,12 +10,20 @@ import { Card } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, CheckCircle2, XCircle, Trophy, RotateCcw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, Trophy, RotateCcw, Save, LogIn } from "lucide-react";
 import { toast } from "sonner";
+import { 
+  savePendingProgress, 
+  getPendingProgress, 
+  clearPendingProgress 
+} from "@/utils/pendingQuizProgress";
+import { saveSessionQuizProgress } from "@/utils/sessionProgress";
+import { saveLocalQuizProgress } from "@/utils/localProgress";
 
 const QuizDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { data: threat, isLoading: threatLoading } = useThreat(id || '');
   const { data: quizzes, isLoading: quizzesLoading } = useQuizzes(id);
@@ -25,8 +33,72 @@ const QuizDetail = () => {
   const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [score, setScore] = useState(0);
+  const [progressRestored, setProgressRestored] = useState(false);
 
   const quiz = quizzes?.[0];
+  const shouldSaveProgress = searchParams.get('saveProgress') === 'true';
+
+  // Handle restoring and saving pending progress when user logs in
+  useEffect(() => {
+    if (!user || !id || progressRestored) return;
+
+    const pendingProgress = getPendingProgress();
+    if (pendingProgress && pendingProgress.threatId === id && shouldSaveProgress) {
+      // User just logged in and has pending progress for this quiz
+      const savePending = async () => {
+        try {
+          await saveProgress.mutateAsync({
+            threatId: pendingProgress.threatId,
+            score: pendingProgress.score,
+            completed: pendingProgress.completed,
+          });
+          clearPendingProgress();
+          toast.success("Your previous progress has been saved!");
+          
+          // Restore the quiz state
+          setSelectedAnswers(pendingProgress.selectedAnswers);
+          setScore(pendingProgress.score);
+          if (pendingProgress.completed) {
+            setShowResults(true);
+          }
+        } catch (error) {
+          console.error('Failed to save pending progress:', error);
+          toast.error("Failed to save your progress. Please try again.");
+        }
+      };
+      savePending();
+      setProgressRestored(true);
+    }
+  }, [user, id, shouldSaveProgress, progressRestored, saveProgress]);
+
+  const handleSaveProgressForGuest = () => {
+    if (!id) return;
+    
+    // Calculate current score if quiz was completed
+    let currentScore = score;
+    let completed = showResults;
+    
+    if (!showResults && quiz) {
+      // Calculate partial progress score
+      currentScore = 0;
+      quiz.questions.forEach((q, index) => {
+        if (selectedAnswers[index] === q.correctAnswer) {
+          currentScore++;
+        }
+      });
+    }
+    
+    savePendingProgress({
+      threatId: id,
+      score: currentScore,
+      selectedAnswers,
+      completed,
+    });
+    
+    // Navigate to auth with return URL
+    navigate(`/auth?returnTo=/quiz/${id}&saveProgress=true`);
+    toast.info("Create an account to save your progress!");
+  };
 
   if (threatLoading || quizzesLoading) {
     return (
@@ -86,24 +158,36 @@ const QuizDetail = () => {
       }
     });
     
+    console.log('[QuizDetail] Quiz finished - correctCount:', correctCount, 'totalQuestions:', quiz.questions.length);
+    
     setScore(correctCount);
     setShowResults(true);
+
+    // For guests, save to both session (for UI) and localStorage (for account sync)
+    if (id && !user) {
+      saveSessionQuizProgress(id, correctCount, true);
+      saveLocalQuizProgress(id, correctCount, true);
+      console.log('[QuizDetail] Saved guest progress to session & localStorage:', { threatId: id, score: correctCount });
+    }
 
     // Save progress to database only if logged in
     if (user && id) {
       try {
-        await saveProgress.mutateAsync({
+        console.log('[QuizDetail] Saving to database...', { userId: user.id, threatId: id, score: correctCount });
+        const result = await saveProgress.mutateAsync({
           threatId: id,
           score: correctCount,
           completed: true,
         });
+        console.log('[QuizDetail] Database save result:', result);
         toast.success("Quiz completed! Progress saved.");
       } catch (error) {
-        console.error('Failed to save progress:', error);
+        console.error('[QuizDetail] Failed to save progress:', error);
         toast.success("Quiz completed!");
       }
     } else {
-      toast.success("Quiz completed! Sign in to save your progress.");
+      console.log('[QuizDetail] User not logged in, skipping database save');
+      toast.success("Quiz completed! Create an account to save your score.");
     }
   };
 
@@ -155,6 +239,26 @@ const QuizDetail = () => {
                 )}
               </div>
 
+              {/* Save Progress CTA for guest users */}
+              {!user && (
+                <Card className="p-6 bg-primary/5 border-primary/20">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <Save className="h-5 w-5 text-primary" />
+                    <h3 className="font-semibold text-lg">Want to save your score?</h3>
+                  </div>
+                  <p className="text-muted-foreground text-sm mb-4">
+                    Create an account to track your progress and compete on the leaderboard!
+                  </p>
+                  <Button 
+                    onClick={handleSaveProgressForGuest}
+                    className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Create Account & Save Progress
+                  </Button>
+                </Card>
+              )}
+
               <div className="space-y-4 pt-4">
                 {quiz.questions.map((question, index) => {
                   const isCorrect = selectedAnswers[index] === question.correctAnswer;
@@ -181,7 +285,7 @@ const QuizDetail = () => {
                 })}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 pt-6">
+              <div className="flex gap-3 pt-6">
                 <Button
                   onClick={resetQuiz}
                   variant="secondary"
