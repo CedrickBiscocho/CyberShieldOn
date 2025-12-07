@@ -7,10 +7,24 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Shield, ArrowLeft, CheckCircle, XCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { 
+  getAllLocalModuleProgress, 
+  getAllLocalQuizProgress, 
+  clearAllLocalProgress,
+  hasAnyLocalProgress 
+} from '@/utils/localProgress';
+import { 
+  getAllSessionQuizProgress, 
+  getAllSessionModuleProgress,
+  clearSessionProgress,
+  hasAnySessionProgress 
+} from '@/utils/sessionProgress';
 
 const Auth = () => {
   const [searchParams] = useSearchParams();
-  const [isSignUp, setIsSignUp] = useState(false);
+  // Start with sign up if saveProgress param is present
+  const [isSignUp, setIsSignUp] = useState(searchParams.get('saveProgress') === 'true');
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,11 +49,119 @@ const Auth = () => {
     }
   }, [searchParams, toast]);
 
-  // Redirect if already logged in
-  if (user) {
-    navigate('/');
-    return null;
-  }
+  // Sync local progress and redirect when user logs in
+  useEffect(() => {
+    if (user) {
+      const syncAndRedirect = async () => {
+        const shouldSyncProgress = searchParams.get('saveProgress') === 'true' || hasAnyLocalProgress() || hasAnySessionProgress();
+        
+        if (shouldSyncProgress) {
+          try {
+            let syncedCount = 0;
+            
+            // Sync module progress from localStorage
+            const moduleProgress = getAllLocalModuleProgress();
+            for (const [moduleId, data] of Object.entries(moduleProgress)) {
+              await supabase
+                .from('module_progress')
+                .upsert({
+                  user_id: user.id,
+                  module_id: moduleId,
+                  progress_percentage: data.progressPercentage,
+                }, { onConflict: 'user_id,module_id' });
+              syncedCount++;
+            }
+            
+            // Also sync session module progress (backup)
+            const sessionModuleProgress = getAllSessionModuleProgress();
+            for (const [moduleId, progressPercentage] of Object.entries(sessionModuleProgress)) {
+              if (!moduleProgress[moduleId]) {
+                await supabase
+                  .from('module_progress')
+                  .upsert({
+                    user_id: user.id,
+                    module_id: moduleId,
+                    progress_percentage: progressPercentage,
+                  }, { onConflict: 'user_id,module_id' });
+                syncedCount++;
+              }
+            }
+            
+            // Sync quiz progress from localStorage
+            const quizProgress = getAllLocalQuizProgress();
+            for (const [threatId, data] of Object.entries(quizProgress)) {
+              // Get existing progress to compare best scores
+              const { data: existing } = await supabase
+                .from('user_progress')
+                .select('best_score')
+                .eq('user_id', user.id)
+                .eq('threat_id', threatId)
+                .single();
+              
+              const newBestScore = Math.max(data.bestScore, existing?.best_score || 0);
+              
+              await supabase
+                .from('user_progress')
+                .upsert({
+                  user_id: user.id,
+                  threat_id: threatId,
+                  score: data.score,
+                  best_score: newBestScore,
+                  completed: data.completed,
+                  completed_at: data.completed ? new Date().toISOString() : null,
+                }, { onConflict: 'user_id,threat_id' });
+              syncedCount++;
+            }
+            
+            // Also sync session quiz progress (backup)
+            const sessionQuizProgress = getAllSessionQuizProgress();
+            for (const [threatId, data] of Object.entries(sessionQuizProgress)) {
+              if (!quizProgress[threatId]) {
+                const { data: existing } = await supabase
+                  .from('user_progress')
+                  .select('best_score')
+                  .eq('user_id', user.id)
+                  .eq('threat_id', threatId)
+                  .single();
+                
+                const newBestScore = Math.max(data.score, existing?.best_score || 0);
+                
+                await supabase
+                  .from('user_progress')
+                  .upsert({
+                    user_id: user.id,
+                    threat_id: threatId,
+                    score: data.score,
+                    best_score: newBestScore,
+                    completed: data.completed,
+                    completed_at: data.completed ? new Date().toISOString() : null,
+                  }, { onConflict: 'user_id,threat_id' });
+                syncedCount++;
+              }
+            }
+            
+            // Clear all progress after successful sync
+            clearAllLocalProgress();
+            clearSessionProgress();
+            
+            if (syncedCount > 0) {
+              toast({
+                title: 'Progress saved!',
+                description: 'Your learning progress has been saved to your account.',
+              });
+            }
+          } catch (error) {
+            console.error('Failed to sync progress:', error);
+          }
+        }
+        
+        // Always navigate to home after login/signup with progress sync
+        navigate('/');
+      };
+      
+      syncAndRedirect();
+    }
+  }, [user, searchParams, navigate, toast]);
 
   const validateUsername = (value: string): string => {
     if (value.length < 3) return 'Username must be at least 3 characters';
@@ -182,6 +304,17 @@ const Auth = () => {
           setIsSignUp(false);
           setPassword('');
           setUsername('');
+          
+          // Handle returnTo redirect after signup
+          const returnTo = searchParams.get('returnTo');
+          const saveProgressParam = searchParams.get('saveProgress');
+          if (returnTo && saveProgressParam) {
+            // User signed up to save progress - they need to sign in now
+            toast({
+              title: 'Please sign in',
+              description: 'Sign in to save your quiz progress.',
+            });
+          }
         }
       } else {
         const { error } = await signIn(email, password);
@@ -191,9 +324,8 @@ const Auth = () => {
             description: error.message,
             variant: 'destructive',
           });
-        } else {
-          navigate('/');
         }
+        // Redirect will be handled by the useEffect that watches for user changes
       }
     } catch (error) {
       toast({
